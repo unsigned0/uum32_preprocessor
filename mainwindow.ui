@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>450</width>
-    <height>285</height>
+    <width>532</width>
+    <height>269</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,8 +17,8 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>110</y>
-     <width>401</width>
+     <y>100</y>
+     <width>491</width>
      <height>151</height>
     </rect>
    </property>
@@ -43,7 +43,7 @@
     <rect>
      <x>20</x>
      <y>15</y>
-     <width>401</width>
+     <width>491</width>
      <height>71</height>
     </rect>
    </property>
@@ -83,7 +83,14 @@
        </widget>
       </item>
       <item>
-       <spacer name="horizontalSpacer">
+       <widget class="QPushButton" name="start_btn">
+        <property name="text">
+         <string>Запустить</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_2">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
         </property>
@@ -96,9 +103,9 @@
        </spacer>
       </item>
       <item>
-       <widget class="QPushButton" name="start_btn">
+       <widget class="QPushButton" name="clear_btn">
         <property name="text">
-         <string>Запустить</string>
+         <string>Очистить</string>
         </property>
        </widget>
       </item>

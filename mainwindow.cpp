@@ -1,8 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-MainWindow::MainWindow(QWidget *parent) : QWidget(parent), nameTable({ "include" }), ui(new Ui::MainWindow),
-    localNameTable( { {"macro", ""}, { "mend", "" } } )
+MainWindow::MainWindow(QWidget *parent) : QWidget(parent), postfix(0), ui(new Ui::MainWindow)
 {
     ui -> setupUi(this);
 
@@ -10,9 +9,11 @@ MainWindow::MainWindow(QWidget *parent) : QWidget(parent), nameTable({ "include"
 
     fileRequester = new QFileDialog(this, QString(), QString(), "Исходный код программы на макроассемблере для УУМ-32 (*.uum32masm)");
 
-    connect(ui -> open_btn,  SIGNAL(clicked()), fileRequester, SLOT(exec()));
+    connect(ui -> open_btn,  SIGNAL(clicked()),  fileRequester,     SLOT(exec()));
+    connect(ui -> clear_btn, SIGNAL(clicked()),  ui -> textBrowser, SLOT(clear()));
     connect(fileRequester,   SIGNAL(accepted()), SLOT(fileSelected()));
-    connect(ui -> start_btn, SIGNAL(clicked()), SLOT(handle()));
+    connect(fileRequester,   SIGNAL(rejected()), SLOT(fileRejected()));
+    connect(ui -> start_btn, SIGNAL(clicked()),  SLOT(handle()));
 }
 
 MainWindow::~MainWindow()
@@ -22,332 +23,525 @@ MainWindow::~MainWindow()
 
 void MainWindow::fileSelected()
 {
-    ui -> path_lbl -> setText(fileRequester -> selectedFiles().at(0));
+    ui -> path_lbl  -> setText(fileRequester -> selectedFiles().at(0));
     ui -> start_btn -> setEnabled(true);
+}
+
+void MainWindow::fileRejected()
+{
+    ui -> start_btn   -> setEnabled(false);
+    ui -> textBrowser -> setPlainText("");
 }
 
 void MainWindow::handle()
 {
-    if(fileRequester -> selectedFiles().isEmpty() == true)
-    {
-        QMessageBox err_msg(windowTitle(), "Предупреждение: файл не выбран", QMessageBox::Warning,
-                                                                             QMessageBox::Ok,
-                                                                             QMessageBox::NoButton,
-                                                                             QMessageBox::NoButton);
-        err_msg.exec();
-        return;
-    }
+    QFile masm_file(fileRequester -> selectedFiles().at(0));
 
-    QFile masmFile(fileRequester -> selectedFiles().at(0));
-
-    if(!masmFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    if(!masm_file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        QMessageBox err_msg(windowTitle(), "Ошибка: файл не найден", QMessageBox::Critical,
-                                                                     QMessageBox::Ok,
-                                                                     QMessageBox::NoButton,
-                                                                     QMessageBox::NoButton);
-        err_msg.exec();
+        QMessageBox msg("Ошибка", "Невозможно открыть файл", QMessageBox::Critical, QMessageBox::Ok, QMessageBox::NoButton, QMessageBox::NoButton);
+        msg.exec();
 
         return;
     }
 
-    QTextStream stream(&masmFile);
+    QTextStream stream(&masm_file);
+
+    stream.setCodec("UTF-8");
+
     QString line;
 
-    for(quint64 str_num = 1; stream.readLineInto(&line); ++str_num)
-    {
-        QString err_msg = parseLine(line);
-
-        if(!err_msg.isEmpty())
+    for(masm_curr_line = 1; stream.readLineInto(&line); ++masm_curr_line)
+        if(parseLine(line) == false)
         {
-            ui -> textBrowser -> append("Строка [" + QString::number(str_num) + "]: " + err_msg);
-
-            nameTable.clear();
-            nameTable.push_back("include");
-            outLst.clear();
-
-            masmFile.close();
-
+            resetState();
             return;
+        }
+
+    stream.seek(0);
+
+    if(lib_info.isEmpty()) // Если библиотека пустая -> нужно просто копировать один файл в другой (ПРОВЕРИТЬ СЛУЧАЙ С ПУСТОЙ БИБЛИОТЕКОЙ)
+    {
+        QString path_to_asm_file = fileRequester -> selectedFiles().at(0);
+
+        path_to_asm_file.truncate(fileRequester -> selectedFiles().at(0).size() - 9);
+        path_to_asm_file += "uum32asm";
+
+        QFile asm_file(path_to_asm_file);
+        asm_file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+
+        QTextStream asm_stream(&asm_file);
+        asm_stream.setCodec("UTF-8");
+
+        while(stream.readLineInto(&line))
+            asm_stream << line << endl;
+
+        masm_file.close();
+        asm_file.close();
+
+        ui -> textBrowser -> append("Файл успешно сгенерирован");
+
+        return;
+    }
+
+    curr_lib_num = 0;
+
+    while(stream.readLineInto(&line))
+        if(translateLine(line) == false)
+        {
+            resetState();
+            return;
+        }
+
+    for(auto lib_iter: lib_info)
+    {
+        for(auto macro_iter: lib_iter)
+        {
+            qDebug() << "Информация о метке                      : " << macro_iter.first.label;
+            qDebug() << "Количество формальных параметров        : " << macro_iter.first.arg_num;
+            qDebug() << "Количество использований макроса в коде : " << macro_iter.first.use_num;
+            qDebug() << "Фактические параметры                   : " << macro_iter.first.actualParamList;
+            qDebug() << "Код метки                               : " << macro_iter.second;
+            qDebug() << "-----------------------------------";
         }
     }
 
-    nameTable.clear();
-    nameTable.push_back("include");
+    QString path_to_asm_file = fileRequester -> selectedFiles().at(0);
 
-    masmFile.close();
+    path_to_asm_file.truncate(fileRequester -> selectedFiles().at(0).size() - 9);
+    path_to_asm_file += "uum32asm";
 
-    QString path_to_handled_file = fileRequester -> selectedFiles().at(0);
-    path_to_handled_file.truncate(fileRequester -> selectedFiles().at(0).size() - 9);
+    QFile asm_file(path_to_asm_file);
+    asm_file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
 
-    path_to_handled_file += "uum32asm";
+    QTextStream asm_stream(&asm_file);
+    asm_stream.setCodec("UTF-8");
 
-    QFile asmFile(path_to_handled_file);
+    for(auto iter: outLst)
+        asm_stream << iter << endl;
 
-    asmFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate);
+    masm_file.close();
+    asm_file.close();
 
-    stream.setDevice(&asmFile);
-    stream.setCodec("UTF-8");   // Без этой кодировки в файле не будут работать русские буквы
+    resetState();
 
-    for(auto source_line: outLst)
-        stream << source_line << '\n';
-
-    asmFile.close();
-
-    outLst.clear();
     ui -> textBrowser -> append("Файл успешно сгенерирован");
 }
 
-
-QString MainWindow::parseLine(QString& line)
+bool MainWindow::parseLine(QString &line)
 {
-    qint32 comm_pos = 0;
-    bool any_keywords = false;
+    parser::deleteComm(line);
 
-    while(comm_pos < line.size() && line[comm_pos] != ';') // Ищем позициию символа начала комментария ";"
-        ++comm_pos;
+    if(line.size() == 0)
+        return true;
 
-    if(!comm_pos)            // Если кроме комментария на строке ничего не было - выходим
-        return QString();
+    int keyw_pos = parser::findKeyword(line, "include");
 
-    line.truncate(comm_pos); // Обрезаем комментарий
-
-    for(quint16 counter = 0; counter < nameTable.size(); ++counter) // Ищем совпадения с ключевыми словами
+    if (keyw_pos != -1)
     {
-        QRegExp find_keyword(nameTable[counter]);
+        error_handle::err_code e_code = error_handle::include_handle(line, keyw_pos);
 
-        int keyword_pos = find_keyword.indexIn(line);
-
-        if(keyword_pos == -1)
-            continue;
-
-        else
+        if(e_code != error_handle::NO_ERROR)
         {
-            any_keywords = true;
-            if(counter == 0) // То есть ключевое слово - include
+            outError(e_code);
+            return false;
+        }
+
+        QString path;
+        quint16 count = 0;
+
+        while(line[count] != '\"') ++count; ++count;
+        while(line[count] != '\"') path += line[count], ++count;
+
+        if(!lookUpModule(path))
+            return false;
+    }
+
+    else
+    {
+        for (quint8 i = 0; i < lib_info.size(); ++i)
+        {
+            for(quint16 j = 0; j < lib_info[i].size(); ++j)
             {
-                for(quint16 i = 0; i != keyword_pos; ++i) // Проверка на символы до include
-                    if(line[i] != ' ' && line[i] != '\t')
-                        return QString("недопустимый символ");
+                int label_pos = parser::findKeyword(line, lib_info[i][j].first.label);
 
-                QString path;
+                if (label_pos == -1)
+                    continue;
 
-                bool open_quote  = false;   // Была ли открывающая кавычка
-                bool close_quote = false;   // Была ли закрывающая кавычка
+                error_handle::err_code e_code = error_handle::extern_label_handle(line, label_pos, lib_info[i][j].first.arg_num);
 
-                keyword_pos += nameTable[counter].size(); // Оказываемся за словом include для нахождения пути подключаемой библиотеки
-
-                for(; keyword_pos < line.size(); ++keyword_pos) // Парсим строку
+                if(e_code != error_handle::NO_ERROR)
                 {
-                    if(open_quote == false)
+                    outError(e_code);
+                    return false;
+                }
+
+                for (; line[label_pos] != ' ' && line[label_pos] != '\t' && label_pos <= line.size() - 1; ++label_pos);
+
+                QStringList temp_list = parser::popParam(line, label_pos);
+
+                for (quint8 par_count = 0; par_count < temp_list.size(); ++par_count)
+                    lib_info[i][j].first.actualParamList.push_back(temp_list[par_count]);
+
+                ++lib_info[i][j].first.use_num;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool MainWindow::lookUpModule(const QString &path)
+{
+    QFile mlb_file(fileRequester -> directory().path() + "/" + path + ".uum32mlb");
+
+    masm_curr_lib = path;
+
+    if(!mlb_file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        outError(error_handle::LIB_NOT_FOUND);
+        return false;
+    }
+
+    QTextStream stream(&mlb_file);
+    QString line;
+
+    bool is_macro_def = false;
+    bool is_mend_def  = true;
+
+    lib_info.push_back(LibInfo()); // Добавляем "пустую" библиотеку
+
+    for(mlb_curr_line = 1; stream.readLineInto(&line); ++mlb_curr_line)
+        if(!parseModuleLine(line, is_macro_def, is_mend_def))
+            return false;
+
+    if(is_mend_def == false)
+    {
+        outError(error_handle::NO_MEND);
+        return false;
+    }
+
+    mlb_file.close();
+
+    mlb_curr_line = 0;
+
+    if(lib_info.last().isEmpty())
+        lib_info.pop_back();
+
+    return true;
+}
+
+bool MainWindow::parseModuleLine(QString &line, bool &is_macro_defined, bool &is_mend_defined)
+{
+    parser::deleteComm(line);
+
+    if(line.size() == 0)
+        return true;
+
+    int keyw_pos = parser::findKeyword(line, "macro");
+
+    if(keyw_pos != -1) // Обрабатываем "macro"
+    {
+        error_handle::err_code e_code = error_handle::macro_handle(line, keyw_pos, is_macro_defined, is_mend_defined);
+
+        if(e_code != error_handle::NO_ERROR)
+        {
+            outError(e_code, true);
+            return false;
+        }
+
+        QString external_lbl;
+
+        for(quint16 count = 0; line[count] != ':'; ++count)             // Получение имени метки
+            external_lbl += line[count];
+
+        quint8 par_num = 0;
+
+        for(quint16 count = keyw_pos + 5; count < line.size(); ++count) // Получение кол - ва параметров
+            if(line[count] == '&')
+                ++par_num;
+
+        lib_info.last().push_back({MacroLabel(external_lbl, par_num), QStringList()});
+    }
+
+    else // Обрабатываем mend
+    {
+        keyw_pos = parser::findKeyword(line, "mend");
+
+        if(keyw_pos != -1)
+        {
+            error_handle::err_code e_code = error_handle::mend_handle(line, keyw_pos, is_macro_defined, is_mend_defined);
+
+            if(e_code != error_handle::NO_ERROR)
+            {
+                outError(e_code, true);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void MainWindow::outError(error_handle::err_code err_code, bool lib_sign)
+{
+    using namespace error_handle;
+    QString error;
+
+    switch(err_code)
+    {
+        case SYMBOL_BEFORE_INCLUDE:
+            error = "Некорректный символ перед <font color = #00BBFF> include </font>";
+            break;
+        case SYMB_BTWN_INCLUDE_AND_PATH:
+            error = "Некорректный символ между <font color = #00BBFF> include </font> и открывающей кавычкой";
+            break;
+        case SYMB_AFTER_PATH:
+            error = "Некорректный символ после закрывающей кавычки";
+            break;
+        case NO_PATH:
+            error = "Не указан путь к библиотеке";
+            break;
+        case NO_CLOSE_QUOT:
+            error = "Нет закрывающей кавчки";
+            break;
+        case SYMB_BTWN_LBL_AND_LIBLBL:
+            error = "Некорректный символ между мектой и именем макроса";
+            break;
+        case NO_LBL_NAME:
+            error = "Нет имени метки";
+            break;
+        case COLON_OVERLAP:
+            error = "Повторное использование двоеточия";
+            break;
+        case INCORRECT_SYMBOL:
+            error = "Некорректный символ";
+            break;
+        case NO_COLON:
+            error = "Пропущена запятая";
+            break;
+        case PARAM_MISMATCH:
+            error = "Несовпадение количества фактических и формальных параметров";
+            break;
+        case COMMA_OVERLAP:
+            error = "Повторное использование запятой";
+            break;
+        case LIB_NOT_FOUND:
+            error = "Не найдена библиотека \"" + masm_curr_lib + "\"";
+            break;
+        case NO_MEND:
+            error = "Нет закрывающего mend";
+            break;
+        case MACRO_OVERLAP:
+            error = "Двойное включение <font color = #00BBFF> macro </font>";
+            break;
+        case INCORRECT_LBL_NAME:
+            error = "Некорректное имя метки";
+            break;
+        case INCORRECT_PARAM_DEFINITION:
+            error = "Некорректное определение параметров";
+            break;
+        case NO_PARAM_NAME:
+            error = "Нет названия параметра";
+            break;
+        case COMMA_AFTER_PARAM:
+            error = "Запятая после определения параметров";
+            break;
+        case SYMB_BTWN_LBL_AND_MACRO:
+            error = "Некорректный символ между именем метки и <font color = #00BBFF> macro </font>";
+            break;
+        case AMPERSAND_OVERLAP:
+            error = "Повторное использование амперсанда";
+            break;
+        case NO_AMPERSAND:
+            error = "Не найден &";
+            break;
+        case MEND_OVERLAP:
+            error = "Некорректное включение <font color = #00BBFF> mend </font>";
+            break;
+        case NO_DOLLAR:
+            error = "Метка должна начинаться со знака $";
+            break;
+        case SYMB_BTWN_LBL_AND_MEND:
+            error = "Некорректный символ между именем метки и <font color = #00BBFF> mend </font>";
+            break;
+        default:
+            error = "Критическая ошибка макропроцессора";
+            break;
+    }
+
+    if(lib_sign == false)
+        ui -> textBrowser -> append("<font color = #FF0000> Ошибка </font> в строке [" + QString::number(masm_curr_line) + "]: " + error);
+    else
+        ui -> textBrowser -> append("<font color = #FF0000> Ошибка </font> в библиотеке \"" + masm_curr_lib + "\" в строке [" + QString::number(mlb_curr_line) + "]: " + error);
+}
+
+void MainWindow::resetState()
+{
+    outLst.clear();
+    lib_info.clear();
+    postfix = 0;
+}
+
+bool MainWindow::translateLine(QString &line)
+{
+    parser::deleteComm(line);
+
+    if(line.size() == 0)
+        return true;
+
+    int keyw_pos = parser::findKeyword(line, "include");
+
+    if(keyw_pos != -1)
+    {
+        QString path;
+        quint16 count = 0;
+
+        while(line[count] != '\"') ++count; ++count;
+        while(line[count] != '\"') path += line[count], ++count;
+
+        if(translateModule(path) == false)
+            return false;
+    }
+
+    else
+    {
+        bool any_replacement = false;
+
+        for (quint8 i = 0; i < lib_info.size() && any_replacement == false; ++i)
+        {
+            for(quint16 j = 0; j < lib_info[i].size() && any_replacement == false; ++j)
+            {
+                int label_pos = parser::findKeyword(line, lib_info[i][j].first.label);
+
+                if (label_pos == -1)
+                    continue;
+
+                any_replacement = true;
+
+                QVector <QPair <QString, QString>> replacement_table;
+
+                for(quint16 count = 0; count < lib_info[i][j].second.size(); ++count)
+                {
+                    if(count != 0 && count != lib_info[i][j].second.size() - 1) // Избежание включения macro и mend
                     {
-                        if(line[keyword_pos] == '\t' || line[keyword_pos] == ' ')
-                            continue;
+                        QString pseud_label = parser::findPseudLabel(lib_info[i][j].second[count]);
+                        QString buff_line   = lib_info[i][j].second[count];
 
-                        else if(line[keyword_pos] == '\"')
-                            open_quote = true;
-
-                        else
-                            return QString("недопустимый символ");
-                    }
-
-                    else if(open_quote == true)
-                    {
-                        if(close_quote == false)
+                        if(!pseud_label.isEmpty())
                         {
-                            if(line[keyword_pos] != '\"')
-                                path += line[keyword_pos];
+                            quint16 _count;
+                            for(_count = 0; _count < replacement_table.size(); ++_count)
+                                if(pseud_label == replacement_table[_count].first)
+                                    break;
 
-                            else
-                                close_quote = true;
+                            quint16 dollar_pos;       // Позиция знака '$'
+
+                            if(_count == replacement_table.size()) // Метка не найдена
+                            {
+                                replacement_table.push_back({pseud_label, "__" + pseud_label + "_0x" + QString::number(postfix, 16).toUpper()});
+
+                                ++postfix;
+
+                                for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
+
+                                buff_line.insert(dollar_pos, replacement_table.last().second);
+                            }
+
+                            else    // Метка найдена
+                            {
+                                for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
+
+                                buff_line.insert(dollar_pos, replacement_table[_count].second);
+                            }
+
+                            buff_line.remove("$" + pseud_label);
                         }
 
-                        else if(line[keyword_pos] != '\t' && line[keyword_pos] != ' ')
-                            return QString("недопустимый символ");
+                        outLst.push_back(buff_line);
+                    }
+
+                    else // Случаи MACRO + MEND
+                    {
+                        QString out(";=================");
+
+                        if(count == 0)
+                            out += lib_info[i][j].second[count];
+
+                        else
+                            out += "MEND";
+
+                        out += "=================";
+
+                        outLst.push_back(out);
                     }
                 }
-
-                if(open_quote == false)
-                    return QString("не указан путь к библиотеке");
-
-                else if(close_quote == false)
-                    return QString("нет закрывающей кавычки");
-
-                QString plugResult = plugModule(path);
-
-                if(!plugResult.isEmpty())
-                    return plugResult;
-                // code
-            }
-
-            else
-            {
-                // code for lbls
             }
         }
+
+        if(any_replacement == false)
+            outLst.push_back(line);
     }
 
-    if(any_keywords == false)
-        outLst.push_back(line);
-
-    return QString();
+    return true;
 }
 
-QString MainWindow::plugModule(const QString &path)
+bool MainWindow::translateModule(const QString& path)
 {
-    QFile libFile(fileRequester -> directory().path() + "/" + path + ".uum32mlb");
+    QFile mlb_file(fileRequester -> directory().path() + "/" + path + ".uum32mlb");
 
-    if(!libFile.open(QIODevice::ReadOnly | QIODevice::Text))
-        return QString("библиотека \"" + path + "\" не найдена");
+    masm_curr_lib = path;
 
-    QTextStream stream(&libFile);
+    if(!mlb_file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        outError(error_handle::LIB_NOT_FOUND);
+        return false;
+    }
 
+    QTextStream stream(&mlb_file);
     QString line;
-    for(qint16 counter = 1; stream.readLineInto(&line); ++counter)
-    {
-        QString err_msg = parseModuleLine(line);
 
-        if (!err_msg.isEmpty())
-            return QString(err_msg);
-    }
+    bool    in_macro_sign = false;
+    qint32  curr_macro    = -1;
 
+    for(mlb_curr_line = 1; stream.readLineInto(&line); ++mlb_curr_line)
+        if(!translateModuleLine(line, in_macro_sign, curr_macro))
+            return false;
 
-    libFile.close();
+    ++curr_lib_num;
 
-    return QString();
+    return true;
 }
 
-QString MainWindow::parseModuleLine(QString &line)
+bool MainWindow::translateModuleLine(QString& line, bool& in_macro_sign, qint32& curr_macro)
 {
-    qint32 comm_pos = 0;
+    parser::deleteComm(line);
 
-    bool is_macro_defined = false;
-    bool is_mend_defined  = false;
-    bool is_any_keywords  = false;
+    if(line.size() == 0)
+        return true;
 
-    while(comm_pos < line.size() && line[comm_pos] != ';') // Ищем позициию символа начала комментария ";"
-        ++comm_pos;
+    int keyw_pos = parser::findKeyword(line, "macro");
 
-    if(!comm_pos)            // Если кроме комментария на строке ничего не было - выходим
-        return QString();
-
-    line.truncate(comm_pos); // Обрезаем комментарий
-
-    for(quint16 counter = 0; counter < localNameTable.size(); ++counter)
+    if(keyw_pos != -1)
     {
-        QRegExp find_keyword(localNameTable[counter].first);
+        in_macro_sign = true;
+        ++curr_macro;
 
-        int keyword_pos = find_keyword.indexIn(line);
-
-        if(keyword_pos == -1)
-            continue;
-
-        else
-        {
-            is_any_keywords = true;
-
-            if(localNameTable[counter].first == "macro")
-            {
-                if(is_macro_defined == true)
-                    return QString("в библиотеке: mend не найдено");
-
-                if(line[0] == ':')
-                    return QString("в библиотеке: отсутствует имя метки");
-
-                is_mend_defined = false;
-
-                keyword_pos += localNameTable[counter].first.size(); // Перепрыгнуть за macro
-
-                QString macro_lbl;
-
-                quint16 i;
-
-                for(i = 0; (line[i] != ':') && i < line.size(); ++i)            // проверки на некорректный код
-                    macro_lbl += line[i];
-
-                if(i == line.size())
-                    return QString("в библиотеке: нет ':' после метки");
-
-                if(i > keyword_pos - localNameTable[counter].first.size())
-                    return QString("в библиотеке: метка стоит за \"macro\"");
-
-                ++i;
-                for(; i < keyword_pos - localNameTable[counter].first.size(); ++i)
-                    if(line[i] != ' ' && line[i] != '\t')
-                        return QString("в библиотеке: недопустимый символ между меткой и \"macro\"");
-
-                inline_label.push_back(macro_lbl);
-
-                bool ampersand_sign = false;
-
-                QString current_param;
-
-                for(quint8 i = keyword_pos; i < line.size(); ++i) // Ищем параметры или какой - нибудь бред
-                {
-                    if(ampersand_sign == true && (line[i] == ',' || (i + 1 == line.size() && (line[i].isDigit() || line[i].isLetter() || line[i] == '_'))))
-                    {
-                        if((i + 1) == line.size())
-                            current_param += line[i];
-
-                        inline_label.push_back(current_param);
-
-                        current_param.clear();
-
-                        ampersand_sign = false;
-                    }
-
-                    else if(line[i] == ' ' || line[i] == '\t')
-                        continue;
-
-
-                    else if(line[i] == '&')
-                    {
-                        if(ampersand_sign == true)
-                            return QString("в библиотеке: некорректный символ");
-
-                        ampersand_sign = true;
-                    }
-
-                    else if(line[i].isLetter() || line[i].isDigit() || line[i] == '_')
-                    {
-                        if(ampersand_sign == false)
-                            return QString("в библиотеке: некорректное описание параметра");
-
-                        current_param += line[i];
-                    }
-
-                    else
-                        return QString("в библиотеке: некорректный символ");
-
-                }
-
-                qDebug() << inline_label;
-                qDebug() << "----------";
-
-                if(inline_label.size() == 1) // Нет параметров
-                {
-                    QString new_line;
-
-                    for(quint16 i = 0; line[i] != ':'; ++i)
-                        new_line += line[i];
-
-                    outLst.push_back(new_line + ':');
-                }
-
-                else
-                {
-                    //Кодить сюда
-                }
-            }
-
-            else if(localNameTable[counter].first == "mend")
-            {
-                // кодить сюда
-            }
-        }
+        lib_info[curr_lib_num][curr_macro].second.push_back(line);
     }
 
-    inline_label.clear();
+    else
+    {
+        if(in_macro_sign == false)
+            return true;
 
-    return QString();
+        keyw_pos = parser::findKeyword(line, "mend");
+
+        if(keyw_pos != -1)
+            in_macro_sign = false;
+
+        lib_info[curr_lib_num][curr_macro].second.push_back(line);
+    }
+
+    return true;
 }

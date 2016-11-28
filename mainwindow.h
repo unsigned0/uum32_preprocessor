@@ -13,34 +13,65 @@
 #include <QStringList>
 #include <QVector>
 #include <QPair>
+#include "parser.h"
+#include "error.h"
 
 namespace Ui {
     class MainWindow;
 }
 
+/* Потенциальные ошибки:
+    1. имя внешней метки в некорректном месте -> подставится код! (возможно, нужно исправить)
+    2. при нахождении в библиотеки $ без имени метки - ничего не делает (возможно, нужно исправить)
+    3. имена внутренних меток в библиотекек никак не проверяются на ошибки (возможно, нужно исправить)
+*/
+
 class MainWindow : public QWidget
 {
     Q_OBJECT
 private:
-    QFileDialog *fileRequester;
-    QStringList outLst;
-    QStringList nameTable;
-    QVector <QPair <QString, QString>> localNameTable;
-    QStringList inline_label; // inline_label[0] - Имя главной метки, далее - параметры (если есть)
+    struct MacroLabel
+    {
+        QString     label;           // Имя метки
+        quint8      arg_num;         // Количество аргументов метки
+        quint8      use_num;         // Используется ли метка
+        QStringList actualParamList; // Хранит названия фактических параметрова всех вызовов макросов, по arg_num узнаем, какие параметры к какой метке
 
-    //QString().isEmpty = true -> ошибок нет, иначе содержит сообщение об ошибке
-    QString parseLine(QString &line);         // Проверка строки на наличие ключ. слов
-    QString plugModule(const QString &path);  // Подключить модуль к исходному коду
-    QString parseModuleLine(QString &line);
+        MacroLabel() = default;
+        MacroLabel(const QString& _label, quint8 _arg_num, quint8 _use_num = 0, const QStringList& _actualParamList = QStringList())
+            : label(_label), arg_num(_arg_num), use_num(_use_num), actualParamList(_actualParamList) {}
+    };
+
+    typedef QVector <QPair<MacroLabel, QStringList>> LibInfo;
+    // Информация о всех метках одной библиотеки, второй член пару {код макроса, смещения алгоритма подстановки}. (для второго прохода)
+    // *смещения используются для повторных включений меток
+
+    QFileDialog *fileRequester;           // Диалоговое окно для получения пути к файлу .uum32masm
+    QStringList outLst;                   // Выходной листинг
+    QVector <LibInfo> lib_info;           // Информация о всех библиотеках
+    quint32 masm_curr_line;               // Текущая позиция парсера в файле .uum32masm
+    quint32 mlb_curr_line;                // Текущая позиция парсера в файле .uum32mlb
+    quint16 postfix;                      // Номер для подстановки псевдометок
+    quint16 curr_lib_num;                 // Номер текущей библиотеки (исп. во 2 проходе)
+    QString masm_curr_lib;                // Имя библиотеки, в которой работает парсер
+    Ui::MainWindow *ui;                   // ГИП (gui)
+
+    bool translateModuleLine(QString& line, bool& in_macro_sign, qint32& curr_macro);   // [второй проход] Высчитывает смещения и сохраняет код макросов в QStringList LibInfo
+    bool translateModule(const QString& path);                                          // [второй проход] Парсит библиотеку и отсылает по строчке в translateModuleLine
+    bool translateLine(QString& line);                                                  // [второй проход] Просматривает строку кода masm - файла
+    bool parseLine(QString& line);                                                      // [первый проход] Просматривает строку кода masm - файла на наличие меток и include
+    bool parseModuleLine(QString& line, bool& is_macro_defined, bool& is_mend_defined); // [первый проход] Просматривает строку кода mlb - файла на наличие внешних меток,
+    bool lookUpModule(const QString& path);                                             // [первый проход] Выбирает по строчке кода из файла .uum32mlb и отправляет в parseModuleLine
+    void outError(error_handle::err_code, bool lib_sign = false);                       // Выводит ошибки в textBrowser
+    void resetState();                                                                  // Сбрасывает всю информацию о библиотеках
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
-private:
-    Ui::MainWindow *ui;
 private slots:
-    void fileSelected();
-    void handle();
+    void fileSelected();    // Если файл был выбран, делает активной кнопку "Запустить" и выводит путь к выбранному файлу
+    void fileRejected();    // Если файл не был выбран, то делает кнопку "Запустить" неактивной и стирает путь
+    void handle();          // Организация двух проходов по .uum32masm (1 - нахождение информации о метках, проверки на ошибки и подстановка внутри макросов других макросов)
 };
 
 #endif // MAINWINDOW_H
