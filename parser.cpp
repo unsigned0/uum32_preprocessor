@@ -14,7 +14,7 @@ namespace parser
 
     int findKeyword(const QString& line, const QString& keyword)
     {
-        QVector < QPair <QString, quint16> > word_list;
+        QVector <QPair <QString, quint16>> word_list;
         QString curr_word;
 
         QRegExp find_string("'");                        // Нужно, чтобы избежать нахождения ключевых слов в строках с кавычками
@@ -57,6 +57,9 @@ namespace parser
 
         for (; label_pos <= line_end; ++label_pos)
         {
+            if(line[label_pos] == '&') // НЕПРОТЕСТИРОВАННОЕ УСЛОВИЕ!!! (ИСП. ДЛЯ НАХ. ПАРАМ. ОРИГ. ФАЙЛА)
+                continue;
+
             if (label_pos == line_end)
             {
                 new_param += line[label_pos];
@@ -96,6 +99,52 @@ namespace parser
             label += line[count++];
 
         return qMove(label);
+    }
+
+    QStringList popReplaceParam(const QString &line)
+    {
+        QStringList param_list;
+
+        bool is_param_scope = false;
+
+        QString curr_param;
+
+        for(quint16 i = 0; i < line.size(); ++i)
+        {
+            if(i == line.size() - 1)
+            {
+                if(is_param_scope == true)
+                {
+                    if(line[i].isLetterOrNumber() || line[i] == '_')
+                        curr_param += line[i];
+
+                    param_list.push_back(curr_param);
+                }
+
+            }
+
+            else if(line[i] == '&')
+                is_param_scope = true;
+
+            else if(line[i] == ' ' || line[i] == '\t' || line[i] == ',' || line[i] == '[')
+            {
+                if(is_param_scope == true)
+                {
+                    param_list.push_back(curr_param);
+                    is_param_scope = false;
+                    curr_param.clear();
+                }
+            }
+
+            else
+            {
+                if(is_param_scope == true)
+                    curr_param += line[i];
+            }
+
+        }
+
+        return qMove(param_list);
     }
 }
 

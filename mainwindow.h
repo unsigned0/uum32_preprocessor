@@ -34,12 +34,13 @@ private:
     {
         QString     label;           // Имя метки
         quint8      arg_num;         // Количество аргументов метки
-        quint8      use_num;         // Используется ли метка
+        quint8      use_num = 0;     // Используется ли метка
         QStringList actualParamList; // Хранит названия фактических параметрова всех вызовов макросов, по arg_num узнаем, какие параметры к какой метке
+        quint16     curr_par;        // "Указатель" на параметры, которые нужно подставлять в данный момент (из actualParamLists)
 
         MacroLabel() = default;
-        MacroLabel(const QString& _label, quint8 _arg_num, quint8 _use_num = 0, const QStringList& _actualParamList = QStringList())
-            : label(_label), arg_num(_arg_num), use_num(_use_num), actualParamList(_actualParamList) {}
+        MacroLabel(const QString& _label, quint8 _arg_num, quint8 _use_num = 0, const QStringList& _actualParamList = QStringList(), quint16 _curr_par = 0)
+            : label(_label), arg_num(_arg_num), use_num(_use_num), actualParamList(_actualParamList), curr_par(_curr_par) {}
     };
 
     typedef QVector <QPair<MacroLabel, QStringList>> LibInfo;

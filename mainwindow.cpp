@@ -183,7 +183,7 @@ bool MainWindow::parseLine(QString &line)
                 for (quint8 par_count = 0; par_count < temp_list.size(); ++par_count)
                     lib_info[i][j].first.actualParamList.push_back(temp_list[par_count]);
 
-                ++lib_info[i][j].first.use_num;
+                //++lib_info[i][j].first.use_num;
             }
         }
     }
@@ -348,7 +348,7 @@ void MainWindow::outError(error_handle::err_code err_code, bool lib_sign)
             error = "Запятая после определения параметров";
             break;
         case SYMB_BTWN_LBL_AND_MACRO:
-            error = "Некорректный символ между именем метки и <font color = #00BBFF> macro </font>";
+            error = "";
             break;
         case AMPERSAND_OVERLAP:
             error = "Повторное использование амперсанда";
@@ -362,8 +362,11 @@ void MainWindow::outError(error_handle::err_code err_code, bool lib_sign)
         case NO_DOLLAR:
             error = "Метка должна начинаться со знака $";
             break;
-        case SYMB_BTWN_LBL_AND_MEND:
-            error = "Некорректный символ между именем метки и <font color = #00BBFF> mend </font>";
+        case SYMB_BEFORE_MEND:
+            error = "Некорректный перед <font color = #00BBFF> mend </font>";
+            break;
+        case SYMB_AFTER_MEND:
+            error = "Некорректный символ после <font color = #00BBFF> mend </font>";
             break;
         default:
             error = "Критическая ошибка макропроцессора";
@@ -420,6 +423,7 @@ bool MainWindow::translateLine(QString &line)
                 any_replacement = true;
 
                 QVector <QPair <QString, QString>> replacement_table;
+                QStringList form_param_list;
 
                 for(quint16 count = 0; count < lib_info[i][j].second.size(); ++count)
                 {
@@ -428,7 +432,7 @@ bool MainWindow::translateLine(QString &line)
                         QString pseud_label = parser::findPseudLabel(lib_info[i][j].second[count]);
                         QString buff_line   = lib_info[i][j].second[count];
 
-                        if(!pseud_label.isEmpty())
+                        if(!pseud_label.isEmpty()) // Подстановка псевдометок
                         {
                             quint16 _count;
                             for(_count = 0; _count < replacement_table.size(); ++_count)
@@ -458,6 +462,21 @@ bool MainWindow::translateLine(QString &line)
                             buff_line.remove("$" + pseud_label);
                         }
 
+                        // Связывание параметров
+                        QStringList replace_param_list = parser::popReplaceParam(buff_line);
+
+                        qDebug() << replace_param_list;
+
+                        if(!replace_param_list.isEmpty())
+                        {
+                            for(quint16 _count = 0; _count < replace_param_list.size(); ++_count)
+                            { 
+                                qDebug() << form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num;
+                                buff_line.insert(buff_line.indexOf("&" + replace_param_list[_count]), lib_info[i][j].first.actualParamList[form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num]);
+                                buff_line.remove("&" + replace_param_list[_count], Qt::CaseInsensitive);
+                            }
+                        }
+
                         outLst.push_back(buff_line);
                     }
 
@@ -465,11 +484,33 @@ bool MainWindow::translateLine(QString &line)
                     {
                         QString out(";=================");
 
-                        if(count == 0)
-                            out += lib_info[i][j].second[count];
+                        if(count == 0) // Macro
+                        {
+                            int macro_index = parser::findKeyword(lib_info[i][j].second[count], "macro");
 
-                        else
+                            macro_index += QString("macro").size();
+
+                            out += lib_info[i][j].second[count].simplified();
+
+                            bool colon_sign = false;
+                            QString add_line; // Если на строке с макросом стоит метка (masm)
+                            for(quint16 _i = 0; !colon_sign && _i < label_pos; ++_i)
+                            {
+                                add_line += line[_i];
+                                if(line[_i] == ':')
+                                    colon_sign = true;
+                            }
+
+                            outLst.push_back(add_line);
+
+                            form_param_list = parser::popParam(lib_info[i][j].second[count], macro_index);
+                        }
+
+                        else // Mend
+                        {
+                            ++lib_info[i][j].first.use_num;
                             out += "MEND";
+                        }
 
                         out += "=================";
 

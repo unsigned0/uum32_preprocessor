@@ -1,7 +1,7 @@
 #include "error.h"
 
-namespace error_handle {
-
+namespace error_handle
+{
     err_code include_handle(const QString &line, quint16 include_pos)
     {
         for(quint16 i = 0; i < include_pos; ++i)            // Проверка на символы до include
@@ -49,42 +49,42 @@ namespace error_handle {
     err_code extern_label_handle(const QString &line, quint16 label_pos, quint8 par_num)
     {
         bool colon_sign  = false;
-        bool symbol_sign = false;
-        bool before_lbl  = true;
+               bool symbol_sign = false;
+               bool before_lbl  = true;
 
-        for(quint16 count = 0; count < label_pos; ++count) // Проверка до метки
-        {
-            if(line[count].isLetterOrNumber() || line[count] == '_')
-            {
-                if(colon_sign == true)
-                    return SYMB_BTWN_LBL_AND_LIBLBL;
+               for(quint16 count = 0; count < label_pos; ++count) // Проверка до метки
+               {
+                   if(line[count].isLetterOrNumber() || line[count] == '_')
+                   {
+                       if(colon_sign == true)
+                           return SYMB_BTWN_LBL_AND_LIBLBL;
 
-                symbol_sign = true;
-                before_lbl  = false;
-            }
+                       symbol_sign = true;
+                       before_lbl  = false;
+                   }
 
-            else if(line[count] == ':')
-            {
-                if(symbol_sign == false)
-                    return NO_LBL_NAME;
-                else if(colon_sign == true)
-                    return COLON_OVERLAP;
+                   else if(line[count] == ':')
+                   {
+                       if(symbol_sign == false)
+                           return NO_LBL_NAME;
+                       else if(colon_sign == true)
+                           return COLON_OVERLAP;
 
-                colon_sign = true;
-            }
+                       colon_sign = true;
+                   }
 
-            else if(line[count] == ' ' || line[count] == '\t')
-            {
-                if(symbol_sign == true && colon_sign == false && before_lbl == false)
-                    return INCORRECT_SYMBOL;
-            }
+                   else if(line[count] == ' ' || line[count] == '\t')
+                   {
+                       if(symbol_sign == true && colon_sign == false && before_lbl == false)
+                           return INCORRECT_SYMBOL;
+                   }
 
-            else
-                return INCORRECT_SYMBOL;
-        }
+                   else
+                       return INCORRECT_SYMBOL;
+               }
 
-        if(symbol_sign == true && colon_sign == false)
-            return NO_COLON;
+               if(symbol_sign == true && colon_sign == false)
+                   return NO_COLON;
 
         for(; label_pos < line.size() && line[label_pos] != ' ' && line[label_pos] != '\t'; ++label_pos); // Перемещаемся за метку
 
@@ -289,62 +289,14 @@ namespace error_handle {
         is_mend_defined  = true;
         is_macro_defined = false; // Отменяем действие "macro"
 
-        bool dollar_sign  = false;
-        bool lbl_end_sign = false;
-        bool any_symbol   = false;
-
         for(quint16 count = 0; count < mend_pos; ++count)
-        {
-            if(lbl_end_sign == false)
-            {
-                if(line[count] == ' ' || line[count] == '\t')
-                {
-                    if(dollar_sign == true)
-                        return INCORRECT_LBL_NAME;
+            if(line[count] != ' ' && line[count] != '\t')
+                return SYMB_BEFORE_MEND;
 
-                    continue;
-                }
+        for(quint16 count = mend_pos + 4; count < line.size(); ++count)
+            if(line[count] != ' ' && line[count] != '\t')
+                return SYMB_AFTER_MEND;
 
-                else if(line[count] == '$')
-                {
-                    if(dollar_sign == true)
-                        return INCORRECT_SYMBOL;
-
-                    dollar_sign = true;
-                }
-
-                else if(line[count] == ':')
-                {
-                    if(dollar_sign == false)
-                        return NO_DOLLAR;
-
-                    else if(any_symbol == false)
-                        return INCORRECT_SYMBOL;
-
-                    else
-                        lbl_end_sign = true;
-                }
-
-                else if(line[count].isLetterOrNumber() || line[count] == '_')
-                {
-                    if(dollar_sign != true)
-                        return INCORRECT_SYMBOL;
-
-                    any_symbol = true;
-                }
-
-                else
-                    return INCORRECT_SYMBOL;
-            }
-
-            else
-            {
-                if(line[count] == ' ' || line[count] == '\t')
-                    continue;
-                else
-                    return SYMB_BTWN_LBL_AND_MEND;
-            }
-        }
 
         return NO_ERROR;
     }
