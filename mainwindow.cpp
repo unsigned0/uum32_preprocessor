@@ -182,8 +182,6 @@ bool MainWindow::parseLine(QString &line)
 
                 for (quint8 par_count = 0; par_count < temp_list.size(); ++par_count)
                     lib_info[i][j].first.actualParamList.push_back(temp_list[par_count]);
-
-                //++lib_info[i][j].first.use_num;
             }
         }
     }
@@ -429,39 +427,41 @@ bool MainWindow::translateLine(QString &line)
                 {
                     if(count != 0 && count != lib_info[i][j].second.size() - 1) // Избежание включения macro и mend
                     {
-                        QString pseud_label = parser::findPseudLabel(lib_info[i][j].second[count]);
+                        QString pseud_label;
                         QString buff_line   = lib_info[i][j].second[count];
 
-                        if(!pseud_label.isEmpty()) // Подстановка псевдометок
+                        while(!(pseud_label = parser::findPseudLabel(buff_line)).isEmpty())
                         {
-                            quint16 _count;
-                            for(_count = 0; _count < replacement_table.size(); ++_count)
-                                if(pseud_label == replacement_table[_count].first)
-                                    break;
-
-                            quint16 dollar_pos;       // Позиция знака '$'
-
-                            if(_count == replacement_table.size()) // Метка не найдена
+                            if(!pseud_label.isEmpty()) // Подстановка псевдометок
                             {
-                                replacement_table.push_back({pseud_label, "__" + pseud_label + "_0x" + QString::number(postfix, 16).toUpper()});
+                                quint16 _count;
+                                for(_count = 0; _count < replacement_table.size(); ++_count)
+                                    if(pseud_label == replacement_table[_count].first)
+                                        break;
 
-                                ++postfix;
+                                quint16 dollar_pos;       // Позиция знака '$'
 
-                                for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
+                                if(_count == replacement_table.size()) // Метка не найдена
+                                {
+                                    replacement_table.push_back({pseud_label, "__" + pseud_label + "_0x" + QString::number(postfix, 16).toUpper()});
 
-                                buff_line.insert(dollar_pos, replacement_table.last().second);
+                                    ++postfix;
+
+                                    for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
+
+                                    buff_line.insert(dollar_pos, replacement_table.last().second);
+                                }
+
+                                else    // Метка найдена
+                                {
+                                    for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
+
+                                    buff_line.insert(dollar_pos, replacement_table[_count].second);
+                                }
+
+                                buff_line.remove("$" + pseud_label);
                             }
-
-                            else    // Метка найдена
-                            {
-                                for(dollar_pos = 0; buff_line[dollar_pos] != '$'; ++dollar_pos);
-
-                                buff_line.insert(dollar_pos, replacement_table[_count].second);
-                            }
-
-                            buff_line.remove("$" + pseud_label);
                         }
-
                         // Связывание параметров
                         QStringList replace_param_list = parser::popReplaceParam(buff_line);
 
