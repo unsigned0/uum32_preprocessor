@@ -53,7 +53,7 @@ namespace error_handle
                bool before_lbl  = true;
 
                for(quint16 count = 0; count < label_pos; ++count) // Проверка до метки
-               {
+               {                           
                    if(line[count].isLetterOrNumber() || line[count] == '_')
                    {
                        if(colon_sign == true)
@@ -134,11 +134,8 @@ namespace error_handle
                 comma_sign      = false;
             }
 
-            else if(line[count] == ' ' || line[count] == '\t')
-            {
-                if(comma_sign == false && !first_symb_sign == true)
-                    return INCORRECT_SYMBOL;
-            }
+            else if(line[count] == ' ' || line[count] == '\t') // УБРАНА ПРОВЕРКА ! ИЗ - ЗА СЛУЧАЯ LABEL A , B
+                continue;
 
             else
                 return INCORRECT_SYMBOL;

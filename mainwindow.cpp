@@ -1,7 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-MainWindow::MainWindow(QWidget *parent) : QWidget(parent), postfix(0), ui(new Ui::MainWindow)
+MainWindow::MainWindow(QWidget *parent) : QWidget(parent), postfix(0), replace_num(0), ui(new Ui::MainWindow)
 {
     ui -> setupUi(this);
 
@@ -29,8 +29,8 @@ void MainWindow::fileSelected()
 
 void MainWindow::fileRejected()
 {
-    ui -> start_btn   -> setEnabled(false);
-    ui -> textBrowser -> setPlainText("");
+    ui -> start_btn -> setEnabled(false);
+    ui -> path_lbl  -> setText("");
 }
 
 void MainWindow::handle()
@@ -93,19 +93,6 @@ void MainWindow::handle()
             return;
         }
 
-    for(auto lib_iter: lib_info)
-    {
-        for(auto macro_iter: lib_iter)
-        {
-            qDebug() << "Информация о метке                      : " << macro_iter.first.label;
-            qDebug() << "Количество формальных параметров        : " << macro_iter.first.arg_num;
-            qDebug() << "Количество использований макроса в коде : " << macro_iter.first.use_num;
-            qDebug() << "Фактические параметры                   : " << macro_iter.first.actualParamList;
-            qDebug() << "Код метки                               : " << macro_iter.second;
-            qDebug() << "-----------------------------------";
-        }
-    }
-
     QString path_to_asm_file = fileRequester -> selectedFiles().at(0);
 
     path_to_asm_file.truncate(fileRequester -> selectedFiles().at(0).size() - 9);
@@ -152,6 +139,11 @@ bool MainWindow::parseLine(QString &line)
 
         while(line[count] != '\"') ++count; ++count;
         while(line[count] != '\"') path += line[count], ++count;
+
+        int ind = path.indexOf(".uum32mlb");
+
+        if(ind != -1)
+            path.remove(ind, QString(".uum32mlb").size());
 
         if(!lookUpModule(path))
             return false;
@@ -361,7 +353,7 @@ void MainWindow::outError(error_handle::err_code err_code, bool lib_sign)
             error = "Метка должна начинаться со знака $";
             break;
         case SYMB_BEFORE_MEND:
-            error = "Некорректный перед <font color = #00BBFF> mend </font>";
+            error = "Некорректный символ перед <font color = #00BBFF> mend </font>";
             break;
         case SYMB_AFTER_MEND:
             error = "Некорректный символ после <font color = #00BBFF> mend </font>";
@@ -400,6 +392,11 @@ bool MainWindow::translateLine(QString &line)
 
         while(line[count] != '\"') ++count; ++count;
         while(line[count] != '\"') path += line[count], ++count;
+
+        int ind = path.indexOf(".uum32mlb");
+
+        if(ind != -1)
+            path.remove(ind, QString(".uum32mlb").size());
 
         if(translateModule(path) == false)
             return false;
@@ -465,14 +462,20 @@ bool MainWindow::translateLine(QString &line)
                         // Связывание параметров
                         QStringList replace_param_list = parser::popReplaceParam(buff_line);
 
-                        qDebug() << replace_param_list;
-
                         if(!replace_param_list.isEmpty())
                         {
                             for(quint16 _count = 0; _count < replace_param_list.size(); ++_count)
                             { 
-                                qDebug() << form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num;
-                                buff_line.insert(buff_line.indexOf("&" + replace_param_list[_count]), lib_info[i][j].first.actualParamList[form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num]);
+                                int pos_to_insert = buff_line.indexOf("&" + replace_param_list[_count], 0, Qt::CaseInsensitive);
+
+                                if(pos_to_insert == -1)
+                                    continue;
+
+                                if(form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num < 0 ||
+                                   form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num >= lib_info[i][j].first.actualParamList.size())
+                                    continue;
+
+                                buff_line.insert(pos_to_insert, lib_info[i][j].first.actualParamList[form_param_list.indexOf(QRegExp(replace_param_list[_count])) + lib_info[i][j].first.use_num * lib_info[i][j].first.arg_num]);
                                 buff_line.remove("&" + replace_param_list[_count], Qt::CaseInsensitive);
                             }
                         }
@@ -490,16 +493,26 @@ bool MainWindow::translateLine(QString &line)
 
                             macro_index += QString("macro").size();
 
-                            out += lib_info[i][j].second[count].simplified();
-
                             bool colon_sign = false;
                             QString add_line; // Если на строке с макросом стоит метка (masm)
-                            for(quint16 _i = 0; !colon_sign && _i < label_pos; ++_i)
+                            quint16 _i;
+                            for(_i = 0; !colon_sign && _i < label_pos; ++_i)
                             {
                                 add_line += line[_i];
                                 if(line[_i] == ':')
                                     colon_sign = true;
                             }
+
+                            if(colon_sign == true)
+                            {
+                                ++_i;
+                                for(; _i < line.size(); ++_i)
+                                    out += line[_i];
+                            }
+
+                            else
+                                out += line.simplified();
+
 
                             outLst.push_back(add_line);
 
@@ -545,6 +558,9 @@ bool MainWindow::translateModule(const QString& path)
     bool    in_macro_sign = false;
     qint32  curr_macro    = -1;
 
+    replace_num = 0;
+    rep_table.clear();
+
     for(mlb_curr_line = 1; stream.readLineInto(&line); ++mlb_curr_line)
         if(!translateModuleLine(line, in_macro_sign, curr_macro))
             return false;
@@ -579,9 +595,108 @@ bool MainWindow::translateModuleLine(QString& line, bool& in_macro_sign, qint32&
         keyw_pos = parser::findKeyword(line, "mend");
 
         if(keyw_pos != -1)
+        {
+            replace_num = 0;
             in_macro_sign = false;
+        }
 
-        lib_info[curr_lib_num][curr_macro].second.push_back(line);
+        bool replacement_sign = false;
+
+        for(quint16 i = 0; i < lib_info[curr_lib_num].size(); ++i)
+        {
+            if(i == curr_macro) // ПОСЛЕДНИЙ ?!
+                break;
+
+            int macro_index = line.indexOf(lib_info[curr_lib_num][i].first.label, Qt::CaseInsensitive);
+
+            if(macro_index == -1)
+                continue;
+
+            if(lib_info[curr_lib_num][i].first.label.size() + macro_index != line.size())        // Для того, чтобы не считал имена вида kek2 за kek
+                if((line[lib_info[curr_lib_num][i].first.label.size() + macro_index] != ' '  &&
+                   line[lib_info[curr_lib_num][i].first.label.size() + macro_index] != '\t') ||
+                   (macro_index && line[macro_index - 1] != ' ' && line[macro_index - 1] != '\t'))
+                    continue;
+
+            replacement_sign = true;
+
+            QStringList act_param_list  = parser::popParamWithApm(line, macro_index + lib_info[curr_lib_num][i].first.label.size());
+            QStringList form_param_list = parser::popParam(lib_info[curr_lib_num][i].second[0], lib_info[curr_lib_num][i].second[0].indexOf("macro", Qt::CaseInsensitive) + 5);
+
+            if(act_param_list.size() != form_param_list.size())
+            {
+                outError(error_handle::INCORRECT_PARAM_DEFINITION, true);
+                return false;
+            }
+
+            // : поиск
+
+            int colon_ind = line.indexOf(':');
+
+            QString meta_label;
+
+            if(colon_ind != -1)
+            {
+                for(quint16 iterator = 0; iterator != colon_ind; ++iterator)
+                    meta_label += line[iterator];
+
+                lib_info[curr_lib_num][curr_macro].second.push_back(meta_label + ':');
+                line.remove(0, colon_ind + 1);
+            }
+
+            lib_info[curr_lib_num][curr_macro].second.push_back(";-------------" + line + "------------");
+
+            for(quint16 j = 1; j < lib_info[curr_lib_num][i].second.size() - 1; ++j)
+            {
+                QString buff_line = lib_info[curr_lib_num][i].second[j];
+
+                // ПОДСТАНОВКА
+
+                QString pseud_label = parser::findPseudLabel(buff_line);
+
+                if(!pseud_label.isEmpty())
+                {
+                    bool found_pseud_lbl = false;
+                    for(quint16 _count = 0; _count < rep_table.size(); ++_count)
+                    {
+                        if(pseud_label == rep_table[_count].first)
+                        {
+                            found_pseud_lbl = true;
+                            buff_line.insert(buff_line.indexOf(pseud_label) + pseud_label.size(), rep_table[_count].second);
+                        }
+                    }
+
+                    if(found_pseud_lbl == false)
+                    {
+                        rep_table.push_back({pseud_label, pseud_label + "__0x" + QString::number(replace_num++).toUpper()});
+                        buff_line.insert(buff_line.indexOf(pseud_label) + pseud_label.size(), rep_table.last().second);
+                    }
+                }
+
+                // /ПОДСТАНОВКА
+
+                for(quint16 count = 0; count < form_param_list.size(); ++count)
+                {
+                    int pos_to_insert = buff_line.indexOf("&" + form_param_list[count], Qt::CaseInsensitive);
+
+                    if(pos_to_insert == -1)
+                        continue;
+
+                    buff_line.insert(pos_to_insert, act_param_list[count]);
+                    buff_line.remove("&" + form_param_list[count], Qt::CaseInsensitive);
+                }
+
+                lib_info[curr_lib_num][curr_macro].second.push_back(buff_line);
+            }
+
+
+            lib_info[curr_lib_num][curr_macro].second.push_back(";-------------MEND------------");
+        }
+
+        if(replacement_sign == false)
+            lib_info[curr_lib_num][curr_macro].second.push_back(line);
+
+        rep_table.clear();
     }
 
     return true;

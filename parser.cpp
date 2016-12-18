@@ -57,7 +57,7 @@ namespace parser
 
         for (; label_pos <= line_end; ++label_pos)
         {
-            if(line[label_pos] == '&') // НЕПРОТЕСТИРОВАННОЕ УСЛОВИЕ!!! (ИСП. ДЛЯ НАХ. ПАРАМ. ОРИГ. ФАЙЛА)
+            if(line[label_pos] == '&')
                 continue;
 
             if (label_pos == line_end)
@@ -145,6 +145,44 @@ namespace parser
         }
 
         return qMove(param_list);
+    }
+
+    QStringList popParamWithApm (const QString& line, quint16 label_pos)
+    {
+        QString     new_param;
+        QStringList act_param_list;
+        quint16     line_end;
+
+        for(line_end = line.size() - 1; line[line_end] == ' ' || line[line_end] == '\t'; --line_end); // Возвращаемся с конца до первого символа
+
+        for (; label_pos <= line_end; ++label_pos)
+        {
+            if(line[label_pos] == '&') // НЕПРОТЕСТИРОВАННОЕ УСЛОВИЕ!!! (ИСП. ДЛЯ НАХ. ПАРАМ. ОРИГ. ФАЙЛА)
+            {
+                new_param += '&';
+                continue;
+            }
+
+            if (label_pos == line_end)
+            {
+                new_param += line[label_pos];
+                act_param_list.push_back(new_param);
+            }
+
+            else if (line[label_pos] == ' ' || line[label_pos] == '\t')
+                continue;
+
+            else if (line[label_pos].isLetterOrNumber() || line[label_pos] == '_' || line[label_pos] == '#')
+                new_param += line[label_pos];
+
+            else
+            {
+                act_param_list.push_back(new_param);
+                new_param.clear();
+            }
+        }
+
+        return qMove(act_param_list);
     }
 }
 

@@ -7,7 +7,6 @@
 #include <QFile>
 #include <QTextStream>
 #include <QMessageBox>
-#include <QDebug>
 #include <QString>
 #include <QRegExp>
 #include <QStringList>
@@ -53,6 +52,8 @@ private:
     quint16 postfix;                      // Номер для подстановки псевдометок
     quint16 curr_lib_num;                 // Номер текущей библиотеки (исп. во 2 проходе)
     QString masm_curr_lib;                // Имя библиотеки, в которой работает парсер
+    QVector <QPair <QString, QString>> rep_table; // Подстановка
+    quint16 replace_num;
     Ui::MainWindow *ui;                   // ГИП (gui)
 
     bool translateModuleLine(QString& line, bool& in_macro_sign, qint32& curr_macro);   // [второй проход] Высчитывает смещения и сохраняет код макросов в QStringList LibInfo
